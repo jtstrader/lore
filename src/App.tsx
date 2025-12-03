@@ -6,6 +6,10 @@ function App() {
   const [searchResults, setSearchResults] = createSignal([] as string[]);
   const [key, setKey] = createSignal(null as string | null);
 
+  /**
+   * Perform an initial search on application mount with an empty key.
+   * This should populate the search results with all available items.
+   */
   onMount(async () => {
     await updateKeyAndSearch("");
   });

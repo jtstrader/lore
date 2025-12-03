@@ -10,6 +10,6 @@ export async function search(
   key: string,
   priorKey: string | null = null
 ): Promise<string[]> {
-  let isPrefix = priorKey !== null && key.startsWith(priorKey);
-  return (await invoke("search", { key, isPrefix })) as string[];
+  let isAppend = priorKey !== null && key.startsWith(priorKey);
+  return (await invoke("search", { key, isAppend })) as string[];
 }
