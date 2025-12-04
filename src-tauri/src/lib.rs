@@ -1,20 +1,33 @@
+use miniserde::{json, Deserialize, Serialize};
+use nucleo::{Config, Nucleo};
+use std::fs;
+use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::{
     io,
     path::Path,
     sync::{Arc, RwLock},
 };
+use tauri::{App, Manager, State, Wry};
 
-use nucleo::{Config, Nucleo};
-use tauri::State;
+#[derive(Serialize, Deserialize)]
+struct AppConfig {
+    lore_dir: Option<String>,
+}
 
 const NUM_COLUMNS: usize = 1;
+static CONFIG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+    let sys_cfg_dir =
+        dirs::config_dir().expect("Supported operating systems are Linux, macOS, and Windows");
+    sys_cfg_dir.join("lore/config.json")
+});
 
 struct Fuzzer {
     matcher: RwLock<Option<Nucleo<&'static str>>>,
 }
 
 // TODO: Dangerous because no data has been injected, so the matcher will never match anything.
-// Good for now but need to find the most idiomatic way to intitialize the data _without_ compromising
+// Good for now but need to find the most idiomatic way to initialize the data _without_ compromising
 // startup (which naturally will not have a set directory yet).
 impl Default for Fuzzer {
     fn default() -> Self {
@@ -85,9 +98,63 @@ fn search(key: &str, is_append: bool, fuzzer: State<Fuzzer>) -> Vec<String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(Fuzzer::new(Path::new("")).unwrap())
+        .setup(init_app_state)
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![search])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn init_app_state(app: &mut App<Wry>) -> Result<(), Box<dyn std::error::Error>> {
+    /*
+     * Steps to initialize:
+     *   1. Check to see if the config exists. If not, init the app with a default fuzzer.
+     *   2. If the config exists, grab the directory and attempt to init the fuzzer with
+     *      the provided directory. If this fails, raise an error and init the app with
+     *      a default fuzzer.
+     */
+
+    if !CONFIG_PATH.exists() || !CONFIG_PATH.is_file() {
+        eprintln!("lore config did not exist");
+
+        // Create default config.
+        fs::create_dir_all(
+            CONFIG_PATH
+                .parent()
+                .expect("config path guaranteed to have at least 1 parent"),
+        )?;
+        fs::File::create(CONFIG_PATH.as_path())?;
+        let cfg_str = json::to_string(&AppConfig { lore_dir: None });
+        fs::write(CONFIG_PATH.as_path(), cfg_str.as_bytes())?;
+
+        eprintln!("lore config successfully created");
+
+        // Init app state with default.
+        app.manage(Fuzzer::default());
+        return Ok(());
+    }
+
+    let cfg_str = fs::read_to_string(CONFIG_PATH.as_path())?;
+    let cfg = json::from_str::<AppConfig>(&cfg_str)?;
+
+    let Some(lore_dir) = cfg.lore_dir else {
+        eprintln!("lore config exists but has no set directory");
+        app.manage(Fuzzer::default());
+        return Ok(());
+    };
+
+    eprintln!("lore config successfully deserialized");
+
+    match Fuzzer::new(Path::new(&lore_dir)) {
+        Ok(fuzzer) => {
+            eprintln!("fuzzer initialized with directory: '{}'", &lore_dir);
+            app.manage(fuzzer);
+        }
+        Err(e) => {
+            eprintln!("fuzzer failed to load due to error {}", e);
+            app.manage(Fuzzer::default());
+        }
+    };
+
+    Ok(())
 }
