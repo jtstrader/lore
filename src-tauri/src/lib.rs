@@ -1,4 +1,4 @@
-use miniserde::{json, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use nucleo::{Config, Nucleo};
 use std::fs;
 use std::path::PathBuf;
@@ -13,6 +13,13 @@ use tauri::{App, Manager, State, Wry};
 #[derive(Serialize, Deserialize)]
 struct AppConfig {
     lore_dir: Option<String>,
+}
+
+/// The current state of the fuzzer.
+#[derive(Serialize)]
+enum FuzzerState {
+    Uninitialized,
+    Initialized,
 }
 
 const NUM_COLUMNS: usize = 1;
@@ -87,6 +94,13 @@ impl Fuzzer {
             .map(String::from)
             .collect::<Vec<_>>()
     }
+
+    fn get_state(&self) -> FuzzerState {
+        match self.matcher.read().expect("lock cannot be poisoned").is_some() {
+            true => FuzzerState::Initialized,
+            false => FuzzerState::Uninitialized
+        }
+    }
 }
 
 // TODO: Will likely need to return a preview of the image data. Should the frontend handle this?
@@ -95,12 +109,17 @@ fn search(key: &str, is_append: bool, fuzzer: State<Fuzzer>) -> Vec<String> {
     fuzzer.search(key, is_append)
 }
 
+#[tauri::command]
+fn get_state(fuzzer: State<Fuzzer>) -> FuzzerState {
+    fuzzer.get_state()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(init_app_state)
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![search])
+        .invoke_handler(tauri::generate_handler![search, get_state])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -124,7 +143,7 @@ fn init_app_state(app: &mut App<Wry>) -> Result<(), Box<dyn std::error::Error>> 
                 .expect("config path guaranteed to have at least 1 parent"),
         )?;
         fs::File::create(CONFIG_PATH.as_path())?;
-        let cfg_str = json::to_string(&AppConfig { lore_dir: None });
+        let cfg_str = serde_json::to_string(&AppConfig { lore_dir: None })?;
         fs::write(CONFIG_PATH.as_path(), cfg_str.as_bytes())?;
 
         eprintln!("lore config successfully created");
@@ -135,7 +154,7 @@ fn init_app_state(app: &mut App<Wry>) -> Result<(), Box<dyn std::error::Error>> 
     }
 
     let cfg_str = fs::read_to_string(CONFIG_PATH.as_path())?;
-    let cfg = json::from_str::<AppConfig>(&cfg_str)?;
+    let cfg = serde_json::from_str::<AppConfig>(&cfg_str)?;
 
     let Some(lore_dir) = cfg.lore_dir else {
         eprintln!("lore config exists but has no set directory");

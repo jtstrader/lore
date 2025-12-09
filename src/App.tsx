@@ -1,5 +1,5 @@
 import { createSignal, onMount } from "solid-js";
-import { search } from "./commands";
+import { FuzzerState, getState, search } from "./commands";
 import "./App.css";
 
 function App() {
@@ -11,6 +11,12 @@ function App() {
    * This should populate the search results with all available items.
    */
   onMount(async () => {
+    const state = await getState();
+    if (state === FuzzerState.Uninitialized) {
+      console.warn("Fuzzer is uninitialized. Searching cannot occur.");
+      return;
+    }
+
     await updateKeyAndSearch("");
   });
 
