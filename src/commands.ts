@@ -26,6 +26,7 @@ class Invoker {
  */
 export enum FuzzerState {
   Initialized = "Initialized",
+  Poisoned = "Poisoned",
   Uninitialized = "Uninitialized",
 }
 

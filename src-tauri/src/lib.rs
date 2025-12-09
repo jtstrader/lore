@@ -18,7 +18,13 @@ struct AppConfig {
 /// The current state of the fuzzer.
 #[derive(Serialize)]
 enum FuzzerState {
+    /// The fuzzer has been created but is unable to perform searches.
     Uninitialized,
+
+    /// A thread panicked while the fuzzer was in use, it is now unusable.
+    Poisoned,
+
+    /// The fuzzer has been created and can search.
     Initialized,
 }
 
@@ -96,7 +102,12 @@ impl Fuzzer {
     }
 
     fn get_state(&self) -> FuzzerState {
-        match self.matcher.read().expect("lock cannot be poisoned").is_some() {
+        let lock = match self.matcher.read() {
+            Ok(matcher) => matcher,
+            Err(_) => return FuzzerState::Poisoned,
+        };
+
+        match lock.is_some() {
             true => FuzzerState::Initialized,
             false => FuzzerState::Uninitialized
         }
