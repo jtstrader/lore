@@ -74,9 +74,10 @@ impl Fuzzer {
         walkdir::WalkDir::new(root_dir)
             .min_depth(1) // prevent matching on working dir
             .into_iter()
-            .filter_map(|e| e.ok())
-            .for_each(|entry| {
-                let entry = entry
+            .flat_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .for_each(|e| {
+                let entry = e
                     .path()
                     .strip_prefix(root_dir)
                     .expect("entry is a child item of root_dir")
@@ -108,7 +109,7 @@ impl Fuzzer {
 
         match key.len() {
             0 => eprintln!("no key provided"),
-            1.. => eprintln!("performing search for key: {key}, is_append: {is_append}")
+            1.. => eprintln!("performing search for key: {key}, is_append: {is_append}"),
         };
 
         matcher.pattern.reparse(
