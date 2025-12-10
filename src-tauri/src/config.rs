@@ -1,6 +1,6 @@
 //! `lore_lib` configuration.
 
-use serde::{Deserialize, Serialize, de};
+use serde::{de, Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -15,7 +15,7 @@ pub static CONFIG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 pub static DEFAULT_STORE_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     let sys_cfg_dir =
         dirs::config_dir().expect("Supported operating systems are Linux, macOS, and Windows");
-    
+
     // Windows
     #[cfg(target_os = "windows")]
     {
@@ -62,6 +62,7 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// Get the store directory.
     pub fn store_dir(&self) -> &Path {
         &self.store_dir
     }

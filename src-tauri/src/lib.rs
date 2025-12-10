@@ -4,8 +4,17 @@
 #![warn(missing_docs)]
 #![warn(unreachable_code)]
 
-mod config;
-mod fuzzer;
+/*
+ * Enforcing documentation is less for the sake of the public API (since none of this is going on
+ * crates.io) but rather just to make it abundantly clear what's going on and why. I don't want to
+ * come back to this one day with absolutely no clue as to what's going on.
+ *
+ * Making the below modules pub enforces the missing_docs lint on them, which I'm doing to make
+ * sure I don't forget to document whatever I end up putting in those.
+ */
+
+pub mod config;
+pub mod fuzzer;
 
 use config::{AppConfig, CONFIG_PATH, DEFAULT_STORE_PATH};
 use fuzzer::{Fuzzer, FuzzerState};
@@ -79,10 +88,7 @@ fn init_app_state(app: &mut App<Wry>) -> Result<(), Box<dyn std::error::Error>> 
         eprintln!("lore config successfully created");
 
         // Init app state with default.
-        app.manage(
-            Fuzzer::new(&DEFAULT_STORE_PATH)
-                .expect("store was just successfully created meaning we have perms"),
-        );
+        app.manage(Fuzzer::new(&DEFAULT_STORE_PATH));
         return Ok(());
     } else if !DEFAULT_STORE_PATH.exists() || !DEFAULT_STORE_PATH.is_dir() {
         fs::create_dir_all(&*DEFAULT_STORE_PATH)?;
@@ -90,22 +96,13 @@ fn init_app_state(app: &mut App<Wry>) -> Result<(), Box<dyn std::error::Error>> 
 
     let cfg_str = fs::read_to_string(CONFIG_PATH.as_path())?;
     let cfg = serde_json::from_str::<AppConfig>(&cfg_str)?;
-
     eprintln!("config loaded\n{:?}", cfg);
 
-    match Fuzzer::new(cfg.store_dir()) {
-        Ok(fuzzer) => {
-            eprintln!(
-                "fuzzer initialized with directory: '{}'",
-                cfg.store_dir().display()
-            );
-            app.manage(fuzzer);
-        }
-        Err(e) => {
-            eprintln!("fuzzer failed to load due to error {}", e);
-            app.manage(Fuzzer::default());
-        }
-    };
+    app.manage(Fuzzer::new(cfg.store_dir()));
+    eprintln!(
+        "fuzzer initialized with directory: '{}'",
+        cfg.store_dir().display()
+    );
 
     Ok(())
 }

@@ -2,7 +2,6 @@
 
 use nucleo::{Config, Nucleo};
 use serde::Serialize;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -44,7 +43,8 @@ impl Default for Fuzzer {
 }
 
 impl Fuzzer {
-    pub fn new(root_dir: &Path) -> Result<Self, io::Error> {
+    /// Builds a [`Fuzzer`].
+    pub fn new(root_dir: &Path) -> Self {
         let matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, NUM_COLUMNS as u32);
 
         walkdir::WalkDir::new(root_dir)
@@ -68,12 +68,20 @@ impl Fuzzer {
 
         eprintln!("matcher initialized");
 
-        Ok(Self {
+        Self {
             matcher: RwLock::new(Some(matcher)),
             path: root_dir.to_path_buf(),
-        })
+        }
     }
 
+    /// Perform an approximate string match search for the key.
+    ///
+    /// # Appending
+    ///
+    /// There are some minor performance optimization gains we can get by notifying the matcher
+    /// if the new key is the previous key with some new text appended on it.
+    ///
+    /// > TODO: Save key of prior search and track is_append completely in the backend.
     pub fn search(&self, key: &str, is_append: bool) -> Vec<String> {
         let mut matcher_lock = self
             .matcher
@@ -105,6 +113,7 @@ impl Fuzzer {
             .collect::<Vec<_>>()
     }
 
+    /// Get a [`FuzzerState`]. The fuzzer is only ready for searching if it is [`FuzzerState::Initialized`].
     pub fn get_state(&self) -> FuzzerState {
         let lock = match self.matcher.read() {
             Ok(matcher) => matcher,
