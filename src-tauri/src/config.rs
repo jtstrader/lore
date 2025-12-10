@@ -15,7 +15,7 @@ pub static CONFIG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 pub static DEFAULT_STORE_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     let sys_cfg_dir =
         dirs::config_dir().expect("Supported operating systems are Linux, macOS, and Windows");
-
+    
     // Windows
     #[cfg(target_os = "windows")]
     {

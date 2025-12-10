@@ -1,3 +1,9 @@
+//! `lore_lib` library. This contains the application loading code for lore.
+
+#![deny(unsafe_code)]
+#![warn(missing_docs)]
+#![warn(unreachable_code)]
+
 mod config;
 mod fuzzer;
 
@@ -30,6 +36,7 @@ fn get_fuzzer_working_dir(fuzzer: State<Fuzzer>) -> String {
         .to_string()
 }
 
+/// Run the application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
