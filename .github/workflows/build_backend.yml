@@ -1,0 +1,49 @@
+name: Build Backend
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    name: Build & Test
+    defaults:
+      run:
+        working-directory: ./src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Rust Installation
+        run: cargo --version
+
+      - name: Check
+        id: check
+        run: cargo c --all-features
+
+      - name: Lint
+        id: clippy
+        if: ${{ steps.check.outcome == 'success' }}
+        run: cargo clippy --all-features -- -Dwarnings
+
+      - name: Docs
+        id: docs
+        if: ${{ steps.check.outcome == 'success' }}
+        env:
+          RUSTDOCFLAGS: '-Dwarnings'
+        run: cargo doc --document-private-items --all-features # TODO: confirm if we need no-deps or not
+
+      - name: Build
+        id: build
+        if: ${{ steps.check.outcome == 'success' }}
+        run: cargo b --all-features
+
+      - name: Test
+        id: test
+        if: ${{ steps.build.outcome == 'success' }}
+        run: cargo t --all-features
