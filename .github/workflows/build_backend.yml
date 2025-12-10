@@ -51,7 +51,7 @@ jobs:
         if: ${{ steps.check.outcome == 'success' }}
         env:
           RUSTDOCFLAGS: '-Dwarnings'
-        run: cargo doc --document-private-items --all-features # TODO: confirm if we need no-deps or not
+        run: cargo doc --document-private-items --all-features --no-deps
 
       - name: Build
         id: build
