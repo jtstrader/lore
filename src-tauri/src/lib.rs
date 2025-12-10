@@ -1,147 +1,12 @@
+mod config;
+mod fuzzer;
+
+use config::{AppConfig, CONFIG_PATH, DEFAULT_STORE_PATH};
+use fuzzer::{Fuzzer, FuzzerState};
 use normpath::PathExt;
-use nucleo::{Config, Nucleo};
-use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
-use std::sync::LazyLock;
-use std::{
-    io,
-    path::Path,
-    sync::{Arc, RwLock},
-};
+
 use tauri::{App, Manager, State, Wry};
-
-const NUM_COLUMNS: usize = 1;
-static CONFIG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
-    let sys_cfg_dir =
-        dirs::config_dir().expect("Supported operating systems are Linux, macOS, and Windows");
-    sys_cfg_dir.join("lore/config.json")
-});
-
-static DEFAULT_STORE_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
-    let sys_cfg_dir =
-        dirs::config_dir().expect("Supported operating systems are Linux, macOS, and Windows");
-    sys_cfg_dir.join("lore/store")
-});
-
-#[derive(Serialize, Deserialize)]
-struct AppConfig {
-    store_dir: Option<String>,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        AppConfig {
-            store_dir: DEFAULT_STORE_PATH.to_str().map(ToString::to_string),
-        }
-    }
-}
-
-/// The current state of the fuzzer.
-#[derive(Serialize)]
-enum FuzzerState {
-    /// The fuzzer has been created but is unable to perform searches.
-    Uninitialized,
-
-    /// A thread panicked while the fuzzer was in use, it is now unusable.
-    Poisoned,
-
-    /// The fuzzer has been created and can search.
-    Initialized,
-}
-
-struct Fuzzer {
-    matcher: RwLock<Option<Nucleo<String>>>,
-    path: PathBuf,
-}
-
-// TODO: Dangerous because no data has been injected, so the matcher will never match anything.
-// Good for now but need to find the most idiomatic way to initialize the data _without_ compromising
-// startup (which naturally will not have a set directory yet).
-impl Default for Fuzzer {
-    fn default() -> Self {
-        Self {
-            matcher: RwLock::new(None),
-            path: PathBuf::new(),
-        }
-    }
-}
-
-impl Fuzzer {
-    fn new(root_dir: &Path) -> Result<Self, io::Error> {
-        let matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, NUM_COLUMNS as u32);
-
-        walkdir::WalkDir::new(root_dir)
-            .min_depth(1) // prevent matching on working dir
-            .into_iter()
-            .flat_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-            .for_each(|e| {
-                let entry = e
-                    .path()
-                    .strip_prefix(root_dir)
-                    .expect("entry is a child item of root_dir")
-                    .display()
-                    .to_string();
-                eprintln!("adding entry: {}", entry);
-
-                matcher.injector().push(entry, |data, cols| {
-                    cols[0] = data.clone().into();
-                });
-            });
-
-        eprintln!("matcher initialized");
-
-        Ok(Self {
-            matcher: RwLock::new(Some(matcher)),
-            path: root_dir.to_path_buf(),
-        })
-    }
-
-    fn search(&self, key: &str, is_append: bool) -> Vec<String> {
-        let mut matcher_lock = self
-            .matcher
-            .write()
-            .expect("search cannot panic so this lock cannot be poisoned");
-        let matcher = matcher_lock
-            .as_mut()
-            .expect("matcher should be initialized before search is called");
-
-        match key.len() {
-            0 => eprintln!("no key provided"),
-            1.. => eprintln!("performing search for key: {key}, is_append: {is_append}"),
-        };
-
-        matcher.pattern.reparse(
-            0,
-            key,
-            nucleo::pattern::CaseMatching::Ignore,
-            nucleo::pattern::Normalization::Never,
-            is_append,
-        );
-
-        matcher.tick(10);
-        matcher
-            .snapshot()
-            .matched_items(..)
-            .into_iter()
-            .map(|item| item.data)
-            .cloned()
-            .collect::<Vec<_>>()
-    }
-
-    fn get_state(&self) -> FuzzerState {
-        let lock = match self.matcher.read() {
-            Ok(matcher) => matcher,
-            Err(_) => return FuzzerState::Poisoned,
-        };
-
-        match lock.is_some() {
-            true => FuzzerState::Initialized,
-            false => FuzzerState::Uninitialized,
-        }
-    }
-}
 
 // TODO: Will likely need to return a preview of the image data. Should the frontend handle this?
 #[tauri::command]
@@ -208,7 +73,7 @@ fn init_app_state(app: &mut App<Wry>) -> Result<(), Box<dyn std::error::Error>> 
 
         // Init app state with default.
         app.manage(
-            Fuzzer::new(&*DEFAULT_STORE_PATH)
+            Fuzzer::new(&DEFAULT_STORE_PATH)
                 .expect("store was just successfully created meaning we have perms"),
         );
         return Ok(());
@@ -219,18 +84,14 @@ fn init_app_state(app: &mut App<Wry>) -> Result<(), Box<dyn std::error::Error>> 
     let cfg_str = fs::read_to_string(CONFIG_PATH.as_path())?;
     let cfg = serde_json::from_str::<AppConfig>(&cfg_str)?;
 
-    let Some(lore_dir) = cfg.store_dir else {
-        eprintln!("CRITICAL: lore config exists but has no set directory");
-        eprintln!("  > this means someone has messed with the file somehow...");
-        app.manage(Fuzzer::new(&*DEFAULT_STORE_PATH).expect("hope and pray, chief"));
-        return Ok(());
-    };
+    eprintln!("config loaded\n{:?}", cfg);
 
-    eprintln!("lore config successfully deserialized");
-
-    match Fuzzer::new(Path::new(&lore_dir)) {
+    match Fuzzer::new(cfg.store_dir()) {
         Ok(fuzzer) => {
-            eprintln!("fuzzer initialized with directory: '{}'", &lore_dir);
+            eprintln!(
+                "fuzzer initialized with directory: '{}'",
+                cfg.store_dir().display()
+            );
             app.manage(fuzzer);
         }
         Err(e) => {
