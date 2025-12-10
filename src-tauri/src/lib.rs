@@ -76,8 +76,14 @@ impl Fuzzer {
             .into_iter()
             .filter_map(|e| e.ok())
             .for_each(|entry| {
-                eprintln!("adding entry: {}", entry.path().display());
-                let entry = entry.path().display().to_string();
+                let entry = entry
+                    .path()
+                    .strip_prefix(root_dir)
+                    .expect("entry is a child item of root_dir")
+                    .display()
+                    .to_string();
+                eprintln!("adding entry: {}", entry);
+
                 matcher.injector().push(entry, |data, cols| {
                     cols[0] = data.clone().into();
                 });
@@ -92,8 +98,6 @@ impl Fuzzer {
     }
 
     fn search(&self, key: &str, is_append: bool) -> Vec<String> {
-        eprintln!("performing search for key: {key}, is_append: {is_append}");
-
         let mut matcher_lock = self
             .matcher
             .write()
@@ -101,6 +105,11 @@ impl Fuzzer {
         let matcher = matcher_lock
             .as_mut()
             .expect("matcher should be initialized before search is called");
+
+        match key.len() {
+            0 => eprintln!("no key provided"),
+            1.. => eprintln!("performing search for key: {key}, is_append: {is_append}")
+        };
 
         matcher.pattern.reparse(
             0,
