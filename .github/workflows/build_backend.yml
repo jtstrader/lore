@@ -19,6 +19,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Install the relevant dependencies for Tauri v2 per https://v2.tauri.app/start/prerequisites/
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+          
+
       - name: Verify Rust Installation
         run: cargo --version
 
