@@ -19,6 +19,11 @@ class Invoker {
   static async getState(): Promise<FuzzerState> {
     return this._invoke<FuzzerState>("get_state");
   }
+
+  /** Invoke the `get_fuzzer_working_dir command. */
+  static async getFuzzerFolder(): Promise<string> {
+    return this._invoke<string>("get_fuzzer_working_dir");
+  }
 }
 
 /**
@@ -50,4 +55,12 @@ export async function search(
  */
 export async function getState(): Promise<FuzzerState> {
   return await Invoker.getState();
+}
+
+/**
+ * Get the folder that the fuzzer is currently using for storage.
+ * @returns The folder that the fuzzer is currently using.
+ */
+export async function getFuzzerFolder(): Promise<string> {
+  return await Invoker.getFuzzerFolder();
 }

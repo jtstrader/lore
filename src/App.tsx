@@ -1,10 +1,11 @@
 import { createSignal, onMount } from "solid-js";
-import { FuzzerState, getState, search } from "./commands";
+import { FuzzerState, getState, search, getFuzzerFolder } from "./commands";
 import "./App.css";
 
 function App() {
   const [searchResults, setSearchResults] = createSignal([] as string[]);
   const [key, setKey] = createSignal(null as string | null);
+  const [fuzzerFolder, setFuzzerFolder] = createSignal(null as string | null);
 
   /**
    * Perform an initial search on application mount with an empty key.
@@ -16,6 +17,9 @@ function App() {
       console.warn("Fuzzer is uninitialized. Searching cannot occur.");
       return;
     }
+
+    setFuzzerFolder(await getFuzzerFolder());
+    console.log(`Fuzzer initialized in: ${fuzzerFolder()}`);
 
     await updateKeyAndSearch("");
   });

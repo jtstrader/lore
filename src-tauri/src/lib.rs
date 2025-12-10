@@ -1,3 +1,4 @@
+use normpath::PathExt;
 use nucleo::{Config, Nucleo};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -51,6 +52,7 @@ enum FuzzerState {
 
 struct Fuzzer {
     matcher: RwLock<Option<Nucleo<String>>>,
+    path: PathBuf,
 }
 
 // TODO: Dangerous because no data has been injected, so the matcher will never match anything.
@@ -60,6 +62,7 @@ impl Default for Fuzzer {
     fn default() -> Self {
         Self {
             matcher: RwLock::new(None),
+            path: PathBuf::new(),
         }
     }
 }
@@ -69,9 +72,11 @@ impl Fuzzer {
         let matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, NUM_COLUMNS as u32);
 
         walkdir::WalkDir::new(root_dir)
+            .min_depth(1) // prevent matching on working dir
             .into_iter()
             .filter_map(|e| e.ok())
             .for_each(|entry| {
+                eprintln!("adding entry: {}", entry.path().display());
                 let entry = entry.path().display().to_string();
                 matcher.injector().push(entry, |data, cols| {
                     cols[0] = data.clone().into();
@@ -82,6 +87,7 @@ impl Fuzzer {
 
         Ok(Self {
             matcher: RwLock::new(Some(matcher)),
+            path: root_dir.to_path_buf(),
         })
     }
 
@@ -138,12 +144,27 @@ fn get_state(fuzzer: State<Fuzzer>) -> FuzzerState {
     fuzzer.get_state()
 }
 
+#[tauri::command]
+fn get_fuzzer_working_dir(fuzzer: State<Fuzzer>) -> String {
+    fuzzer
+        .path
+        .normalize()
+        .expect("path must be valid for the fuzzer")
+        .into_path_buf()
+        .display()
+        .to_string()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(init_app_state)
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![search, get_state])
+        .invoke_handler(tauri::generate_handler![
+            search,
+            get_state,
+            get_fuzzer_working_dir
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -181,6 +202,8 @@ fn init_app_state(app: &mut App<Wry>) -> Result<(), Box<dyn std::error::Error>> 
                 .expect("store was just successfully created meaning we have perms"),
         );
         return Ok(());
+    } else if !DEFAULT_STORE_PATH.exists() || !DEFAULT_STORE_PATH.is_dir() {
+        fs::create_dir_all(&*DEFAULT_STORE_PATH)?;
     }
 
     let cfg_str = fs::read_to_string(CONFIG_PATH.as_path())?;
