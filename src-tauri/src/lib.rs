@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use nucleo::{Config, Nucleo};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -10,9 +10,30 @@ use std::{
 };
 use tauri::{App, Manager, State, Wry};
 
+const NUM_COLUMNS: usize = 1;
+static CONFIG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+    let sys_cfg_dir =
+        dirs::config_dir().expect("Supported operating systems are Linux, macOS, and Windows");
+    sys_cfg_dir.join("lore/config.json")
+});
+
+static DEFAULT_STORE_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+    let sys_cfg_dir =
+        dirs::config_dir().expect("Supported operating systems are Linux, macOS, and Windows");
+    sys_cfg_dir.join("lore/store")
+});
+
 #[derive(Serialize, Deserialize)]
 struct AppConfig {
-    lore_dir: Option<String>,
+    store_dir: Option<String>,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        AppConfig {
+            store_dir: DEFAULT_STORE_PATH.to_str().map(ToString::to_string),
+        }
+    }
 }
 
 /// The current state of the fuzzer.
@@ -28,15 +49,8 @@ enum FuzzerState {
     Initialized,
 }
 
-const NUM_COLUMNS: usize = 1;
-static CONFIG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
-    let sys_cfg_dir =
-        dirs::config_dir().expect("Supported operating systems are Linux, macOS, and Windows");
-    sys_cfg_dir.join("lore/config.json")
-});
-
 struct Fuzzer {
-    matcher: RwLock<Option<Nucleo<&'static str>>>,
+    matcher: RwLock<Option<Nucleo<String>>>,
 }
 
 // TODO: Dangerous because no data has been injected, so the matcher will never match anything.
@@ -51,19 +65,18 @@ impl Default for Fuzzer {
 }
 
 impl Fuzzer {
-    fn new(_root_dir: &Path) -> Result<Self, io::Error> {
+    fn new(root_dir: &Path) -> Result<Self, io::Error> {
         let matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, NUM_COLUMNS as u32);
 
-        // TODO: Read from disk rather than dummy data.
-        const CANDIDATES: &[&str] = &[
-            "foo/bar", "foo bar", "potato", "sandwich", "flu bar", "foo bot", "fubar", "yaks",
-        ];
-
-        CANDIDATES.into_iter().for_each(|&x| {
-            matcher.injector().push(x, |data, cols| {
-                cols[0] = (*data).into();
+        walkdir::WalkDir::new(root_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .for_each(|entry| {
+                let entry = entry.path().display().to_string();
+                matcher.injector().push(entry, |data, cols| {
+                    cols[0] = data.clone().into();
+                });
             });
-        });
 
         eprintln!("matcher initialized");
 
@@ -96,8 +109,8 @@ impl Fuzzer {
             .snapshot()
             .matched_items(..)
             .into_iter()
-            .map(|item| *item.data)
-            .map(String::from)
+            .map(|item| item.data)
+            .cloned()
             .collect::<Vec<_>>()
     }
 
@@ -109,7 +122,7 @@ impl Fuzzer {
 
         match lock.is_some() {
             true => FuzzerState::Initialized,
-            false => FuzzerState::Uninitialized
+            false => FuzzerState::Uninitialized,
         }
     }
 }
@@ -154,22 +167,29 @@ fn init_app_state(app: &mut App<Wry>) -> Result<(), Box<dyn std::error::Error>> 
                 .expect("config path guaranteed to have at least 1 parent"),
         )?;
         fs::File::create(CONFIG_PATH.as_path())?;
-        let cfg_str = serde_json::to_string(&AppConfig { lore_dir: None })?;
+        let cfg_str = serde_json::to_string(&AppConfig::default())?;
         fs::write(CONFIG_PATH.as_path(), cfg_str.as_bytes())?;
+
+        // Create default store.
+        fs::create_dir_all(&*DEFAULT_STORE_PATH)?;
 
         eprintln!("lore config successfully created");
 
         // Init app state with default.
-        app.manage(Fuzzer::default());
+        app.manage(
+            Fuzzer::new(&*DEFAULT_STORE_PATH)
+                .expect("store was just successfully created meaning we have perms"),
+        );
         return Ok(());
     }
 
     let cfg_str = fs::read_to_string(CONFIG_PATH.as_path())?;
     let cfg = serde_json::from_str::<AppConfig>(&cfg_str)?;
 
-    let Some(lore_dir) = cfg.lore_dir else {
-        eprintln!("lore config exists but has no set directory");
-        app.manage(Fuzzer::default());
+    let Some(lore_dir) = cfg.store_dir else {
+        eprintln!("CRITICAL: lore config exists but has no set directory");
+        eprintln!("  > this means someone has messed with the file somehow...");
+        app.manage(Fuzzer::new(&*DEFAULT_STORE_PATH).expect("hope and pray, chief"));
         return Ok(());
     };
 
